@@ -1,0 +1,1126 @@
+<div class="post_inner">
+            <header class="post_title"><h1>移动端HTML5&lt;video&gt;视频播放优化实践</h1></header>
+            
+            <!-- .post_meta -->
+
+            <section class="post_content post_public">
+                <h2 id="h2-0">遇到的挑战</h2>
+<p>移动端HTML5使用原生&lt;video&gt;标签播放视频，要做到两个基本原则，速度快和体验佳，先来分析一下这两个问题。</p>
+<h3 id="h3-1">下载速度</h3>
+<p>以一个8s短视频为例，wifi环境下提供的高清视频达到1000kbps，文件大小大约1MB；非wifi环境下提供的低码率视频是500kbps左右，文件大小大约500KB；参考QzoneTouch多普勒测速，2g网络的平均速度是14KB/s，那么下载一个低码率视频耗时35s；那么要想流畅播放视频，就需要一个加载等待的过程，这个过程要有明确的反馈，不能让用户有“坏掉了”的感觉。</p>
+<h4>多普勒测速数据参考</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>dns(s)</th>
+<th>conn(s)</th>
+<th>rtt(s)</th>
+<th>tran(kb/s)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2g</td>
+<td>3.85785</td>
+<td>2.33482</td>
+<td>2.57478</td>
+<td>14.0374</td>
+</tr>
+<tr>
+<td>3g</td>
+<td>1.60643</td>
+<td>0.743109</td>
+<td>0.608047</td>
+<td>60.1967</td>
+</tr>
+<tr>
+<td>wifi</td>
+<td>0.986921</td>
+<td>0.550208</td>
+<td>0.444332</td>
+<td>70.8728</td>
+</tr>
+</tbody>
+</table>
+<h3 id="h3-2">用户体验</h3>
+<p>视频是否可以自动播放，是否能循环播放，是否能显示下载进度，播放的时候如何隐藏控制条，暂停的时候又能显示出来呢。这些问题看上去貌似简单，但是由于PC/iOS/Android这些不同平台、不同的浏览器内核、甚至相同内核的不同版本，所实现的&lt;video&gt;属性、方法和事件差异较大，解决兼容性问题又给开发造成了很大困扰。<span id="more-4608"></span></p>
+<h2 id="h2-3">分析原因</h2>
+<h3 id="h3-4">事件差异</h3>
+<p>下面是播放一个短视频，在不同平台触发事件和获取属性的差异表现。</p>
+<h4>PC</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>event</th>
+<th>readyState</th>
+<th>currentTime (s)</th>
+<th>buffered (s)</th>
+<th>duration (s)</th>
+<th>视频状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>loadstart</td>
+<td>NOTHING</td>
+<td>0</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>2</td>
+<td>suspend</td>
+<td>NOTHING</td>
+<td>0</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>3</td>
+<td>play</td>
+<td>NOTHING</td>
+<td>0</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>4</td>
+<td>waiting</td>
+<td>NOTHING</td>
+<td>0</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>5</td>
+<td>durationchange</td>
+<td>METADATA</td>
+<td>0</td>
+<td>5.35</td>
+<td>7.91</td>
+<td>获取到视频长度</td>
+</tr>
+<tr>
+<td>6</td>
+<td>loadedmetadata</td>
+<td>METADATA</td>
+<td>0</td>
+<td>0.66</td>
+<td>7.91</td>
+<td>获取到元数据</td>
+</tr>
+<tr>
+<td>7</td>
+<td>loadeddata</td>
+<td>ENOUGHDATA</td>
+<td>0</td>
+<td>0.66</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>8</td>
+<td>canplay</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>0.66</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>9</td>
+<td>playing</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>0.66</td>
+<td>7.91</td>
+<td>开始播放</td>
+</tr>
+<tr>
+<td>10</td>
+<td>canplaythrough</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>0.66</td>
+<td>7.91</td>
+<td>可以流畅播放</td>
+</tr>
+<tr>
+<td>11</td>
+<td>progress</td>
+<td>ENOUGH_DATA</td>
+<td>0.11</td>
+<td>3.68</td>
+<td>7.91</td>
+<td>持续下载</td>
+</tr>
+<tr>
+<td>12</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>0.14</td>
+<td>4.44</td>
+<td>7.91</td>
+<td>播放进度变化</td>
+</tr>
+<tr>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+</tr>
+<tr>
+<td>23</td>
+<td>progress</td>
+<td>ENOUGH_DATA</td>
+<td>1.77</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>下载完毕</td>
+</tr>
+<tr>
+<td>24</td>
+<td>suspend</td>
+<td>ENOUGH_DATA</td>
+<td>1.77</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>25</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>1.9</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>继续播放中</td>
+</tr>
+<tr>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+</tr>
+<tr>
+<td>48</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>7.7</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>49</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>50</td>
+<td>seeking</td>
+<td>METADATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>51</td>
+<td>waiting</td>
+<td>METADATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>52</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>53</td>
+<td>seeked</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>播放完毕进度回到起点</td>
+</tr>
+<tr>
+<td>54</td>
+<td>canplay</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>55</td>
+<td>playing</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>循环播放</td>
+</tr>
+<tr>
+<td>56</td>
+<td>canplaythrough</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>57</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>0.19</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+</tr>
+</tbody>
+</table>
+<h4>iOS</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>event</th>
+<th>readyState</th>
+<th>currentTime (s)</th>
+<th>buffered (s)</th>
+<th>duration (s)</th>
+<th>视频状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>loadstart</td>
+<td>NOTHING</td>
+<td>0</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>2</td>
+<td>play</td>
+<td>NOTHING</td>
+<td>0</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>3</td>
+<td>waiting</td>
+<td>NOTHING</td>
+<td>0</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>4</td>
+<td>durationchange</td>
+<td>METADATA</td>
+<td>0</td>
+<td>-</td>
+<td>7.91</td>
+<td>获取到视频长度</td>
+</tr>
+<tr>
+<td>5</td>
+<td>loadedmetadata</td>
+<td>METADATA</td>
+<td>0</td>
+<td>-</td>
+<td>7.91</td>
+<td>获取到元数据</td>
+</tr>
+<tr>
+<td>6</td>
+<td>loadeddata</td>
+<td>ENOUGHDATA</td>
+<td>0</td>
+<td>-</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>7</td>
+<td>canplay</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>8</td>
+<td>canplaythrough</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>可以流畅播放</td>
+</tr>
+<tr>
+<td>9</td>
+<td>playing</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>开始播放</td>
+</tr>
+<tr>
+<td>10</td>
+<td>progress</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>下载完毕</td>
+</tr>
+<tr>
+<td>11</td>
+<td>suspend</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>12</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>0.02</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>播放进度变化</td>
+</tr>
+<tr>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+</tr>
+<tr>
+<td>43</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>7.8</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>44</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>45</td>
+<td>seeked</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>播放完毕进度回到起点</td>
+</tr>
+<tr>
+<td>46</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>0.22</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>循环播放</td>
+</tr>
+<tr>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+</tr>
+</tbody>
+</table>
+<h4>Android</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>event</th>
+<th>readyState</th>
+<th>currentTime (s)</th>
+<th>buffered (s)</th>
+<th>duration (s)</th>
+<th>视频状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>loadstart</td>
+<td>NOTHING</td>
+<td>0</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>2</td>
+<td>play</td>
+<td>NOTHING</td>
+<td>0</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>3</td>
+<td>waiting</td>
+<td>NOTHING</td>
+<td>0</td>
+<td>0</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>4</td>
+<td>durationchange</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+<td>-</td>
+</tr>
+<tr>
+<td>5</td>
+<td>durationchange</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>0</td>
+<td>7.91</td>
+<td>获取到视频长度</td>
+</tr>
+<tr>
+<td>6</td>
+<td>loadedmetadata</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>0</td>
+<td>7.91</td>
+<td>获取到元数据</td>
+</tr>
+<tr>
+<td>7</td>
+<td>loadeddata</td>
+<td>ENOUGHDATA</td>
+<td>0</td>
+<td>0</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>8</td>
+<td>canplay</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>0</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>9</td>
+<td>canplaythrough</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>0</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>10</td>
+<td>playing</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>0</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>11</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>0</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>12</td>
+<td>progress</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>3.57</td>
+<td>7.91</td>
+<td>下载中</td>
+</tr>
+<tr>
+<td>13</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>0.2</td>
+<td>6.89</td>
+<td>7.91</td>
+<td>开始播放</td>
+</tr>
+<tr>
+<td>14</td>
+<td>progress</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>下载完毕</td>
+</tr>
+<tr>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+</tr>
+<tr>
+<td>49</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>7.79</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>50</td>
+<td>progress</td>
+<td>ENOUGH_DATA</td>
+<td>7.87</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>51</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>52</td>
+<td>seeking</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>播放完毕进度回到起点</td>
+</tr>
+<tr>
+<td>53</td>
+<td>timeupdate</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>54</td>
+<td>seeked</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>循环播放失败卡住了</td>
+</tr>
+<tr>
+<td>55</td>
+<td>progress</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+<tr>
+<td>56</td>
+<td>stalled</td>
+<td>ENOUGH_DATA</td>
+<td>0</td>
+<td>7.91</td>
+<td>7.91</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h4>一些常用且需要重点关注的&lt;video&gt;事件</h4>
+<table>
+<thead>
+<tr>
+<th>event</th>
+<th>iOS</th>
+<th>Android</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>******************</td>
+<td>***********************************************</td>
+<td>***********************************************</td>
+</tr>
+<tr>
+<td>play</td>
+<td>只是要播放视频，响应的是video.play()方法，并不代表已经开始播放</td>
+<td>和iOS一样，仅是响应video.play()方法</td>
+</tr>
+<tr>
+<td>durationchange</td>
+<td>会执行一次，一定会获取到视频的duration</td>
+<td>可能会执行多次，只有最后一次才能获取到真实的duration，前面的duration都是0；但低版本Android可能获取到的duration是0或1；（本文提到的低版本Android大部分是4.1以下）</td>
+</tr>
+<tr>
+<td>canplay</td>
+<td>可以认为是视频元素没有问题，可以运行，没有更多含义了，基本用不上</td>
+<td>同iOS</td>
+</tr>
+<tr>
+<td>canplaythrough</td>
+<td>会有明确的缓冲，表示可以流畅播放了；</td>
+<td>没有什么用，视频仍然会卡住，数据可能还没有开始加载；</td>
+</tr>
+<tr>
+<td>playing</td>
+<td>明确表示播放开始了；</td>
+<td>依然没有用，视频可能并没有开始播放；</td>
+</tr>
+<tr>
+<td>progress</td>
+<td>有明确的下载，可以获取到当前的buffer，并且全部下载完毕后不在触发；</td>
+<td>不一定有明确的数据下载，并且全部下载完毕后依然继续触发；</td>
+</tr>
+<tr>
+<td>timeupdate</td>
+<td>会有明确的进度变化，可以获取到currentTime；</td>
+<td>进度不一定变化，currentTime可能总是0，但是第一次有currentTime变化的timeupdate事件一定代表了视频开始播放了；</td>
+</tr>
+<tr>
+<td>error</td>
+<td>iOS中会有明确的错误抛出；</td>
+<td>Android中某些浏览器会莫名其妙的抛出error；</td>
+</tr>
+<tr>
+<td>stalled</td>
+<td>网络状况不佳，导致视频下载中断；</td>
+<td>在没有play之前，也可能会抛出该事件。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="h3-5">属性差异</h3>
+<table>
+<thead>
+<tr>
+<th>attributes</th>
+<th>iOS</th>
+<th>android</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>******************</td>
+<td>***********************************************</td>
+<td>***********************************************</td>
+</tr>
+<tr>
+<td>poster<br />
+封面图片</td>
+<td>支持，但是加载速度明显比在&lt;img&gt;中要慢；</td>
+<td>不一定支持（浏览器厂商的实现标准不统一）；</td>
+</tr>
+<tr>
+<td>preload<br />
+预加载</td>
+<td>iPhone不支持；</td>
+<td>可能支持；</td>
+</tr>
+<tr>
+<td>autoplay<br />
+自动播放</td>
+<td>iPhone Safari中不支持，但在webview中可能被开启；iOS开发文档明确说明蜂窝网络下不允许autoplay；</td>
+<td>可能支持；</td>
+</tr>
+<tr>
+<td>loop<br />
+循环播放</td>
+<td>支持</td>
+<td>可能支持；</td>
+</tr>
+<tr>
+<td>controls<br />
+控制条</td>
+<td>支持，但是需要开始播放了才显示</td>
+<td>基本都支持显示或者不显示</td>
+</tr>
+<tr>
+<td>width和height</td>
+<td>一定给出明确的属性设置，切不能为0；</td>
+<td>如果不设置，仅仅通过CSS样式去控制视频大小，可能会导致标签失效。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="h3-6">其他怪异bug和不友好表现</h3>
+<table>
+<thead>
+<tr>
+<th>iOS</th>
+<th>android</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>*********************************************************</td>
+<td>*********************************************************</td>
+</tr>
+<tr>
+<td>物理位置覆盖在&lt;video&gt;区域上的元素，click和touch等事件会失效，比如一个&lt;a&gt;链接如果覆盖在&lt;video&gt;上，那么点击后没有任何效果。</td>
+<td>-</td>
+</tr>
+<tr>
+<td>iOS8.0+中，单页面播放视频超过16个，再播放的视频全部MediaError解码异常无法播放。</td>
+<td>-</td>
+</tr>
+<tr>
+<td>iPhone的Safari会弹出一个全屏的播放器来播放视频，iPad则支持内联播放。iOS7+ 如果webview（比如微信）开启了<code>webview.allowsInlineMediaPlayback = YES;</code>，可以通过设置<code>webkit-playsinline</code>属性支持内联播放；</td>
+<td>支持内联播放，但某些厂商会用自己的播放器劫持原生的视频播放；</td>
+</tr>
+<tr>
+<td>下载视频时，会先发送一个2字节的请求来获取视频元数据（比如时长），然后再不断的发送分包续传（206）请求来下载视频，抓包显示请求数和请求量至少有一倍的冗余（x2），这个严重的bug在iOS8中有明显的修复，但是分包的206请求仍然会有冗余数据的下载，浪费了流量。</td>
+<td>比iOS的处理方式好，没有第一个2字节请求，没有流量损耗；</td>
+</tr>
+<tr>
+<td>-</td>
+<td>低版本Android（&lt;=4.0.4）中，&lt;video&gt;如果在有相对和决定定位的层中，可能会导致整个页面错位。</td>
+</tr>
+<tr>
+<td>-</td>
+<td>某些浏览器厂商会劫持&lt;video&gt;，用其“自己”的播放器来播放视频，“破坏”了产品本身的播放体验，那么只能case by case的解决了。</td>
+</tr>
+<tr>
+<td>加载视频时没有进度提示，视觉上看不出是播放完了还是卡住了；</td>
+<td>加载视频时，大都会显示一个自带的loading UI（菊花）。</td>
+</tr>
+</tbody>
+</table>
+<h2 id="h2-7">最佳实践</h2>
+<h3 id="h3-8">视频初始化</h3>
+<p>如果将一个&lt;video&gt;直接显示在页面中，那么就会看到各种五花八门的播放器初始效果；</p>
+<p><a href="http://www.xuanfengge.com/wp-content/uploads/2015/01/700ca10a-5ffb-11e4-81d2-b11726e4ea38.jpg" target="_blank" rel="lightbox[4608]"><img class="lazyload"  class="alignnone size-full wp-image-4619" data-original="http://www.xuanfengge.com/wp-content/uploads/2015/01/700ca10a-5ffb-11e4-81d2-b11726e4ea38.jpg" src="data:image/gif;base64,R0lGODlhAQABAIAAAOHh4QAAACH5BAAAAAAALAAAAAABAAEAQAICRAEAOw==" alt="700ca10a-5ffb-11e4-81d2-b11726e4ea38" width="520" height="350" /></a></p>
+
+<p>&nbsp;</p>
+<p>这显然不是一个好的视觉体验，那么通常的做法是制作一个模拟的视频播放视图，比如一个封面加一个播放按钮。</p>
+<p>而真实的&lt;video&gt;视频元素要隐藏起来，如何隐藏呢？最好不要用<code>{display: none}</code>或者<code>{width:0;height:0;}</code>的方式，因为这样视频元素会处于未激活的状态，给后续的处理带来麻烦。最佳的方式是将视频设置成1&#215;1像素大小，放在视觉边缘的位置。</p>
+		<div id="crayon-5681d79b333e8140083765" class="crayon-syntax crayon-theme-familiar crayon-font-consolas crayon-os-pc print-yes notranslate" data-settings=" no-popup minimize scroll-mouseover disable-anim wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide" style="font-size: 12px !important;height: 18px !important; line-height: 18px !important;"><span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 12px !important;height: 18px !important; line-height: 18px !important;"><span class="crayon-mixed-highlight" title="含多种语言"></span><div class="crayon-button crayon-nums-button" title="切换显示行编号"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-expand-button" title="Expand Code"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-copy-button" title="Copy"><div class="crayon-button-icon"></div></div></div></div>
+			<div class="crayon-info" style="min-height: 16.8px !important; line-height: 16.8px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea  class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+&lt;!--iOS--&gt;
+&lt;video webkit-playsinline width="1" height="1" class="vplayinside notaplink" x-webkit-airplay controls loop="loop" src="&lt;%=src%&gt;"&gt;&lt;/video&gt;
+
+&lt;!--Android--&gt;
+&lt;video width="1" height="1" controls loop="loop" src="&lt;%=src%&gt;"&gt;&lt;/video&gt;</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5681d79b333e8140083765-1">1</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b333e8140083765-2">2</div><div class="crayon-num" data-line="crayon-5681d79b333e8140083765-3">3</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b333e8140083765-4">4</div><div class="crayon-num" data-line="crayon-5681d79b333e8140083765-5">5</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;"><div class="crayon-line" id="crayon-5681d79b333e8140083765-1"><span class="crayon-o">&lt;</span><span class="crayon-o">!</span><span class="crayon-o">--</span><span class="crayon-v">iOS</span><span class="crayon-o">--</span><span class="crayon-o">&gt;</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b333e8140083765-2"><span class="crayon-o">&lt;</span><span class="crayon-e">video </span><span class="crayon-v">webkit</span><span class="crayon-o">-</span><span class="crayon-e">playsinline </span><span class="crayon-v">width</span><span class="crayon-o">=</span><span class="crayon-s">"1"</span><span class="crayon-h"> </span><span class="crayon-v">height</span><span class="crayon-o">=</span><span class="crayon-s">"1"</span><span class="crayon-h"> </span><span class="crayon-t">class</span><span class="crayon-o">=</span><span class="crayon-s">"vplayinside notaplink"</span><span class="crayon-h"> </span><span class="crayon-v">x</span><span class="crayon-o">-</span><span class="crayon-v">webkit</span><span class="crayon-o">-</span><span class="crayon-e">airplay </span><span class="crayon-e">controls </span><span class="crayon-v">loop</span><span class="crayon-o">=</span><span class="crayon-s">"loop"</span><span class="crayon-h"> </span><span class="crayon-v">src</span><span class="crayon-o">=</span><span class="crayon-s">"<span class="crayon-ta">&lt;%=</span><span class="crayon-v">src</span><span class="crayon-ta">%&gt;</span>"</span><span class="crayon-o">&gt;</span><span class="crayon-o">&lt;</span><span class="crayon-o">/</span><span class="crayon-v">video</span><span class="crayon-o">&gt;</span></div><div class="crayon-line" id="crayon-5681d79b333e8140083765-3">&nbsp;</div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b333e8140083765-4"><span class="crayon-o">&lt;</span><span class="crayon-o">!</span><span class="crayon-o">--</span><span class="crayon-v">Android</span><span class="crayon-o">--</span><span class="crayon-o">&gt;</span></div><div class="crayon-line" id="crayon-5681d79b333e8140083765-5"><span class="crayon-o">&lt;</span><span class="crayon-e">video </span><span class="crayon-v">width</span><span class="crayon-o">=</span><span class="crayon-s">"1"</span><span class="crayon-h"> </span><span class="crayon-v">height</span><span class="crayon-o">=</span><span class="crayon-s">"1"</span><span class="crayon-h"> </span><span class="crayon-e">controls </span><span class="crayon-v">loop</span><span class="crayon-o">=</span><span class="crayon-s">"loop"</span><span class="crayon-h"> </span><span class="crayon-v">src</span><span class="crayon-o">=</span><span class="crayon-s">"<span class="crayon-ta">&lt;%=</span><span class="crayon-v">src</span><span class="crayon-ta">%&gt;</span>"</span><span class="crayon-o">&gt;</span><span class="crayon-o">&lt;</span><span class="crayon-o">/</span><span class="crayon-v">video</span><span class="crayon-o">&gt;</span></div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div><p><a href="http://www.xuanfengge.com/wp-content/uploads/2015/01/d3f7fdec-5ffe-11e4-8904-f8dbe720ed84.jpg" target="_blank" rel="lightbox[4608]"><img class="lazyload"  class="alignnone size-full wp-image-4620" data-original="http://www.xuanfengge.com/wp-content/uploads/2015/01/d3f7fdec-5ffe-11e4-8904-f8dbe720ed84.jpg" src="data:image/gif;base64,R0lGODlhAQABAIAAAOHh4QAAACH5BAAAAAAALAAAAAABAAEAQAICRAEAOw==" alt="d3f7fdec-5ffe-11e4-8904-f8dbe720ed84" width="320" height="426" /></a></p>
+
+<h3 id="h3-9">自动播放</h3>
+<p>autoplay的支持依赖内核和网络状况，比如iPhone在蜂窝网络下明确禁用了autoplay；</p>
+<p>经过试验，在没有明确的用户操作的情况下，直接通过<code>video.play()</code>也是无法激活播放的；</p>
+<p>并且在产品设计上，自动播放也不是一个舒服的用户体验，所以产品设计上尽量避免使用自动播放。</p>
+<h3 id="h3-10">点击播放</h3>
+<p>之前提到，视频最好通过1px大小隐藏起来，那么这时如何触发播放呢？</p>
+<p>经过试验，当在明确的用户操作（touch、click）时，通过这些用户行为事件的回调函数，用<code>video.play()</code>是可以触发视频播放的，那么能否在用户操作后，再去同步的创建和播放视频呢？答案是肯定的，这无疑是一个视频元素初始化的最佳实践，但是有些差异需要注意。</p>
+<h4>iOS6+</h4>
+<p>可以在用户的touch时间中动态创建并播放视频。</p>
+<h4>iOS &lt; 6</h4>
+<p>可以在用户的touch时间中动态创建视频，但不能播放；要再追加一个click事件来启动播放；也就是说，给伪造的视频播放按钮同时绑定tap和click事件，在tap的时候创建，在之后300毫秒的click中去播放。</p>
+<h4>Android</h4>
+<p>大部分高版本Android可以像iOS6+那样去处理，但是低版本的不行，必须要通过click事件去传递<code>video.play()</code>，为了保持兼容，最好是用帮tap和click两个事件来分别完成视频的初始化和播放。</p>
+<p>我们还发现，有些低版本Android中，无法通过<code>video.play()</code>来播放视频，必须有真实的用户点击视频元素才能播放；这种情况，有一个技巧就是在tap的时候初始化并放大视频覆盖在播放视图中，让300毫秒后的真实点击行为穿透点击在视频元素上来实现播放。</p>
+<h3 id="h3-11">循环播放</h3>
+<p>如果视频需要循环播放，那么就增加<code>loop</code>属性，是否能循环播放就看浏览器是否支持了，因为还没有找到hack技巧来强制循环播放；</p>
+<p>即使，在不支持循环播放的Android中，通过监听<code>seeked</code>事件知道了播放进度到了终点或起点暂停了，此时也无法通过<code>video.play()</code>来让视频重新播放。</p>
+<h3 id="h3-12">监控下载进度</h3>
+<p>如何获取视频时长和已经下载的时长？</p>
+		<div id="crayon-5681d79b3340c182917944" class="crayon-syntax crayon-theme-familiar crayon-font-consolas crayon-os-pc print-yes notranslate" data-settings=" no-popup minimize scroll-mouseover disable-anim wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide" style="font-size: 12px !important;height: 18px !important; line-height: 18px !important;"><span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 12px !important;height: 18px !important; line-height: 18px !important;"><div class="crayon-button crayon-nums-button" title="切换显示行编号"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-expand-button" title="Expand Code"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-copy-button" title="Copy"><div class="crayon-button-icon"></div></div></div></div>
+			<div class="crayon-info" style="min-height: 16.8px !important; line-height: 16.8px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea  class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+// 视频时长
+var duration = video.duration
+
+// 获取视频已经下载的时长
+function getEnd(video) {
+  var end = 0
+  try {
+    end = video.buffered.end(0) || 0
+    end = parseInt(end * 1000 + 1) / 1000
+  } catch(e) {
+  }
+  return end
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5681d79b3340c182917944-1">1</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3340c182917944-2">2</div><div class="crayon-num" data-line="crayon-5681d79b3340c182917944-3">3</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3340c182917944-4">4</div><div class="crayon-num" data-line="crayon-5681d79b3340c182917944-5">5</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3340c182917944-6">6</div><div class="crayon-num" data-line="crayon-5681d79b3340c182917944-7">7</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3340c182917944-8">8</div><div class="crayon-num" data-line="crayon-5681d79b3340c182917944-9">9</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3340c182917944-10">10</div><div class="crayon-num" data-line="crayon-5681d79b3340c182917944-11">11</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3340c182917944-12">12</div><div class="crayon-num" data-line="crayon-5681d79b3340c182917944-13">13</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;"><div class="crayon-line" id="crayon-5681d79b3340c182917944-1"><span class="crayon-c">// 视频时长</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3340c182917944-2"><span class="crayon-t">var</span><span class="crayon-h"> </span><span class="crayon-v">duration</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-v">duration</span></div><div class="crayon-line" id="crayon-5681d79b3340c182917944-3">&nbsp;</div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3340c182917944-4"><span class="crayon-c">// 获取视频已经下载的时长</span></div><div class="crayon-line" id="crayon-5681d79b3340c182917944-5"><span class="crayon-t">function</span><span class="crayon-h"> </span><span class="crayon-e">getEnd</span><span class="crayon-sy">(</span><span class="crayon-v">video</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3340c182917944-6"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-t">var</span><span class="crayon-h"> </span><span class="crayon-st">end</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span></div><div class="crayon-line" id="crayon-5681d79b3340c182917944-7"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-st">try</span><span class="crayon-h"> </span><span class="crayon-sy">{</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3340c182917944-8"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-st">end</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-v">buffered</span><span class="crayon-sy">.</span><span class="crayon-st">end</span><span class="crayon-sy">(</span><span class="crayon-cn">0</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">||</span><span class="crayon-h"> </span><span class="crayon-cn">0</span></div><div class="crayon-line" id="crayon-5681d79b3340c182917944-9"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-st">end</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">parseInt</span><span class="crayon-sy">(</span><span class="crayon-st">end</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-cn">1000</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-cn">1</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-h"> </span><span class="crayon-cn">1000</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3340c182917944-10"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-sy">}</span><span class="crayon-h"> </span><span class="crayon-st">catch</span><span class="crayon-sy">(</span><span class="crayon-v">e</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span></div><div class="crayon-line" id="crayon-5681d79b3340c182917944-11"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-sy">}</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3340c182917944-12"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-st">end</span></div><div class="crayon-line" id="crayon-5681d79b3340c182917944-13"><span class="crayon-sy">}</span></div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div><p>&nbsp;</p>
+<p>progress事件表示视频在加载，但是它的触发频率和时机并不规律，最佳做法是通过一个定时器去实时获取end，当end &gt;= duration时，表示已经下载完毕，再终止定时器。</p>
+		<div id="crayon-5681d79b33415064008369" class="crayon-syntax crayon-theme-familiar crayon-font-consolas crayon-os-pc print-yes notranslate" data-settings=" no-popup minimize scroll-mouseover disable-anim wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide" style="font-size: 12px !important;height: 18px !important; line-height: 18px !important;"><span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 12px !important;height: 18px !important; line-height: 18px !important;"><div class="crayon-button crayon-nums-button" title="切换显示行编号"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-expand-button" title="Expand Code"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-copy-button" title="Copy"><div class="crayon-button-icon"></div></div></div></div>
+			<div class="crayon-info" style="min-height: 16.8px !important; line-height: 16.8px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea  class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+var timer = setInterval(function() {
+  var end = getEnd(video),
+        duration = video.duration
+
+  if(end &lt; duration) {
+    return
+  }
+
+  clearInterval(timer)
+}, 1000)</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5681d79b33415064008369-1">1</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33415064008369-2">2</div><div class="crayon-num" data-line="crayon-5681d79b33415064008369-3">3</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33415064008369-4">4</div><div class="crayon-num" data-line="crayon-5681d79b33415064008369-5">5</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33415064008369-6">6</div><div class="crayon-num" data-line="crayon-5681d79b33415064008369-7">7</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33415064008369-8">8</div><div class="crayon-num" data-line="crayon-5681d79b33415064008369-9">9</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33415064008369-10">10</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;"><div class="crayon-line" id="crayon-5681d79b33415064008369-1"><span class="crayon-t">var</span><span class="crayon-h"> </span><span class="crayon-v">timer</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">setInterval</span><span class="crayon-sy">(</span><span class="crayon-t">function</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33415064008369-2"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-t">var</span><span class="crayon-h"> </span><span class="crayon-st">end</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">getEnd</span><span class="crayon-sy">(</span><span class="crayon-v">video</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span></div><div class="crayon-line" id="crayon-5681d79b33415064008369-3"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-v">duration</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">duration</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33415064008369-4">&nbsp;</div><div class="crayon-line" id="crayon-5681d79b33415064008369-5"><span class="crayon-e">&nbsp;&nbsp;</span><span class="crayon-st">if</span><span class="crayon-sy">(</span><span class="crayon-st">end</span><span class="crayon-h"> </span><span class="crayon-o">&lt;</span><span class="crayon-h"> </span><span class="crayon-v">duration</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33415064008369-6"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-st">return</span></div><div class="crayon-line" id="crayon-5681d79b33415064008369-7"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-sy">}</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33415064008369-8">&nbsp;</div><div class="crayon-line" id="crayon-5681d79b33415064008369-9"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-e">clearInterval</span><span class="crayon-sy">(</span><span class="crayon-v">timer</span><span class="crayon-sy">)</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33415064008369-10"><span class="crayon-sy">}</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">1000</span><span class="crayon-sy">)</span></div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div><p>&nbsp;</p>
+<h3 id="h3-13">全部下载后再播放</h3>
+<p>假设播放短视频，如果网络不佳，会造成播放断断续续，在iOS中这种停顿还没有一个明确的等待提示，这不是一个好的体验，那么是否可以将视频全部下载完毕再播放呢？</p>
+<p>在iOS中，可以在视频刚开始下载的时候马上暂停，此时下载还将继续，可以做一个loading的菊花告知视频正在加载，然后等到视频全部下载完再开始播放。</p>
+		<div id="crayon-5681d79b3341d050700938" class="crayon-syntax crayon-theme-familiar crayon-font-consolas crayon-os-pc print-yes notranslate" data-settings=" no-popup minimize scroll-mouseover disable-anim wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide" style="font-size: 12px !important;height: 18px !important; line-height: 18px !important;"><span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 12px !important;height: 18px !important; line-height: 18px !important;"><div class="crayon-button crayon-nums-button" title="切换显示行编号"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-expand-button" title="Expand Code"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-copy-button" title="Copy"><div class="crayon-button-icon"></div></div></div></div>
+			<div class="crayon-info" style="min-height: 16.8px !important; line-height: 16.8px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea  class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+$(video).one('loadeddata', function() {
+  // 暂停，但下载还在继续
+  video.pause()
+
+  // 启动定时器检测视频下载进度
+  var timer = setInterval(function() {
+    var end = getEnd(video),
+        duration = video.duration
+
+    if(end &lt; duration) {
+      return
+    }
+
+    var width = $(video).parent().width()
+
+    // 下载完了，开始播放吧
+    $(video).attr{
+      width: width,
+      height: width
+    }
+    video.play()
+
+    clearInterval(timer)
+  }, 1000)
+})</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5681d79b3341d050700938-1">1</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3341d050700938-2">2</div><div class="crayon-num" data-line="crayon-5681d79b3341d050700938-3">3</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3341d050700938-4">4</div><div class="crayon-num" data-line="crayon-5681d79b3341d050700938-5">5</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3341d050700938-6">6</div><div class="crayon-num" data-line="crayon-5681d79b3341d050700938-7">7</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3341d050700938-8">8</div><div class="crayon-num" data-line="crayon-5681d79b3341d050700938-9">9</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3341d050700938-10">10</div><div class="crayon-num" data-line="crayon-5681d79b3341d050700938-11">11</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3341d050700938-12">12</div><div class="crayon-num" data-line="crayon-5681d79b3341d050700938-13">13</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3341d050700938-14">14</div><div class="crayon-num" data-line="crayon-5681d79b3341d050700938-15">15</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3341d050700938-16">16</div><div class="crayon-num" data-line="crayon-5681d79b3341d050700938-17">17</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3341d050700938-18">18</div><div class="crayon-num" data-line="crayon-5681d79b3341d050700938-19">19</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3341d050700938-20">20</div><div class="crayon-num" data-line="crayon-5681d79b3341d050700938-21">21</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3341d050700938-22">22</div><div class="crayon-num" data-line="crayon-5681d79b3341d050700938-23">23</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b3341d050700938-24">24</div><div class="crayon-num" data-line="crayon-5681d79b3341d050700938-25">25</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;"><div class="crayon-line" id="crayon-5681d79b3341d050700938-1"><span class="crayon-sy">$</span><span class="crayon-sy">(</span><span class="crayon-v">video</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">one</span><span class="crayon-sy">(</span><span class="crayon-s">'loadeddata'</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">function</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3341d050700938-2"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-c">// 暂停，但下载还在继续</span></div><div class="crayon-line" id="crayon-5681d79b3341d050700938-3"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">pause</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3341d050700938-4">&nbsp;</div><div class="crayon-line" id="crayon-5681d79b3341d050700938-5"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-c">// 启动定时器检测视频下载进度</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3341d050700938-6"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-t">var</span><span class="crayon-h"> </span><span class="crayon-v">timer</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">setInterval</span><span class="crayon-sy">(</span><span class="crayon-t">function</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span></div><div class="crayon-line" id="crayon-5681d79b3341d050700938-7"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-t">var</span><span class="crayon-h"> </span><span class="crayon-st">end</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">getEnd</span><span class="crayon-sy">(</span><span class="crayon-v">video</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3341d050700938-8"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-v">duration</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">duration</span></div><div class="crayon-line" id="crayon-5681d79b3341d050700938-9">&nbsp;</div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3341d050700938-10"><span class="crayon-e">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-st">if</span><span class="crayon-sy">(</span><span class="crayon-st">end</span><span class="crayon-h"> </span><span class="crayon-o">&lt;</span><span class="crayon-h"> </span><span class="crayon-v">duration</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span></div><div class="crayon-line" id="crayon-5681d79b3341d050700938-11"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-st">return</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3341d050700938-12"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-sy">}</span></div><div class="crayon-line" id="crayon-5681d79b3341d050700938-13">&nbsp;</div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3341d050700938-14"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-t">var</span><span class="crayon-h"> </span><span class="crayon-v">width</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">$</span><span class="crayon-sy">(</span><span class="crayon-v">video</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">parent</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">width</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span></div><div class="crayon-line" id="crayon-5681d79b3341d050700938-15">&nbsp;</div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3341d050700938-16"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-c">// 下载完了，开始播放吧</span></div><div class="crayon-line" id="crayon-5681d79b3341d050700938-17"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-sy">$</span><span class="crayon-sy">(</span><span class="crayon-v">video</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-v">attr</span><span class="crayon-sy">{</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3341d050700938-18"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-v">width</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-v">width</span><span class="crayon-sy">,</span></div><div class="crayon-line" id="crayon-5681d79b3341d050700938-19"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-v">height</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-i">width</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3341d050700938-20"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-sy">}</span></div><div class="crayon-line" id="crayon-5681d79b3341d050700938-21"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">play</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3341d050700938-22">&nbsp;</div><div class="crayon-line" id="crayon-5681d79b3341d050700938-23"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-e">clearInterval</span><span class="crayon-sy">(</span><span class="crayon-v">timer</span><span class="crayon-sy">)</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b3341d050700938-24"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-sy">}</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">1000</span><span class="crayon-sy">)</span></div><div class="crayon-line" id="crayon-5681d79b3341d050700938-25"><span class="crayon-sy">}</span><span class="crayon-sy">)</span></div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div><p>&nbsp;</p>
+<p><a href="http://www.xuanfengge.com/wp-content/uploads/2015/01/454dabb2-6014-11e4-9651-06136a5a7332.gif" target="_blank" rel="lightbox[4608]"><img class="lazyload"  class="alignnone size-full wp-image-4621" data-original="http://www.xuanfengge.com/wp-content/uploads/2015/01/454dabb2-6014-11e4-9651-06136a5a7332.gif" src="data:image/gif;base64,R0lGODlhAQABAIAAAOHh4QAAACH5BAAAAAAALAAAAAABAAEAQAICRAEAOw==" alt="454dabb2-6014-11e4-9651-06136a5a7332" width="318" height="566" /></a></p>
+
+<h3 id="h3-14">缓冲播放——边下边播时，选择开始播放的最佳时间点</h3>
+<p>当视频越来越长或者网络慢时，等待视频全部下载完再播放也不是好的体验，最好能边下边播，缓冲到流畅状态就开始播放，那什么时候播放才是最佳时间点呢？</p>
+<p>在iOS中，canplaythrough事件就是这个最佳时间点，它是通过动态计算缓冲量和下载速度得出的视频可以流畅播放的状态反馈。</p>
+<blockquote><p>canplaythrough event: The user agent estimates that if playback were to be started now, the media resource could be rendered at the current playback rate all the way to its end without having to stop for further buffering.</p></blockquote>
+<p>&nbsp;</p>
+<p><a href="http://www.xuanfengge.com/wp-content/uploads/2015/01/8fd35acc-6016-11e4-8755-684ef2656ddf.gif" target="_blank" rel="lightbox[4608]"><img class="lazyload"  class="alignnone size-full wp-image-4622" data-original="http://www.xuanfengge.com/wp-content/uploads/2015/01/8fd35acc-6016-11e4-8755-684ef2656ddf.gif" src="data:image/gif;base64,R0lGODlhAQABAIAAAOHh4QAAACH5BAAAAAAALAAAAAABAAEAQAICRAEAOw==" alt="8fd35acc-6016-11e4-8755-684ef2656ddf" width="318" height="566" /></a></p>
+
+<p>注意：下载完再播放和缓冲播放只适用于iOS。</p>
+<h3 id="h3-15">统计播放时间和播放次数</h3>
+<p>要统计实际的播放时间，要累加timeupdate事件变化的时间，再减去中间可能暂停的时间。</p>
+		<div id="crayon-5681d79b33425993010236" class="crayon-syntax crayon-theme-familiar crayon-font-consolas crayon-os-pc print-yes notranslate" data-settings=" no-popup minimize scroll-mouseover disable-anim wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide" style="font-size: 12px !important;height: 18px !important; line-height: 18px !important;"><span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 12px !important;height: 18px !important; line-height: 18px !important;"><div class="crayon-button crayon-nums-button" title="切换显示行编号"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-expand-button" title="Expand Code"><div class="crayon-button-icon"></div></div><div class="crayon-button crayon-copy-button" title="Copy"><div class="crayon-button-icon"></div></div></div></div>
+			<div class="crayon-info" style="min-height: 16.8px !important; line-height: 16.8px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea  class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+$video.on('playing', function() {
+  // 开始播放是打点
+  $video.attr('data-updateTime', +new Date())
+})
+
+$video.on('pause', function() {
+  // 暂停播放时清除打点
+  $video.removeAttr('data-updateTime')
+})
+
+// 累加播放时间
+$video.on('timeupdate', function(event) {
+  var $video = $(event.target),
+      updateTime = parseInt($video.attr('data-updateTime') || 0),
+      playingTime = parseInt($video.attr('data-playingTime') || 0),
+      times = parseInt($video.attr('data-times') || 0),
+      newtimes = 0,
+      video = $video.get(0),
+      duration = parseFloat($video.attr('data-duration') || 0),
+      now = +new Date()
+
+  // 播放时间
+  playingTime = playingTime + now - updateTime
+
+  // 播放次数
+  newtimes = Math.ceil(playingTime / 1000 / duration)
+
+  $video.attr('data-playingTime', playingTime)
+  $video.attr('data-updateTime', now)
+})</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5681d79b33425993010236-1">1</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-2">2</div><div class="crayon-num" data-line="crayon-5681d79b33425993010236-3">3</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-4">4</div><div class="crayon-num" data-line="crayon-5681d79b33425993010236-5">5</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-6">6</div><div class="crayon-num" data-line="crayon-5681d79b33425993010236-7">7</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-8">8</div><div class="crayon-num" data-line="crayon-5681d79b33425993010236-9">9</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-10">10</div><div class="crayon-num" data-line="crayon-5681d79b33425993010236-11">11</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-12">12</div><div class="crayon-num" data-line="crayon-5681d79b33425993010236-13">13</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-14">14</div><div class="crayon-num" data-line="crayon-5681d79b33425993010236-15">15</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-16">16</div><div class="crayon-num" data-line="crayon-5681d79b33425993010236-17">17</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-18">18</div><div class="crayon-num" data-line="crayon-5681d79b33425993010236-19">19</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-20">20</div><div class="crayon-num" data-line="crayon-5681d79b33425993010236-21">21</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-22">22</div><div class="crayon-num" data-line="crayon-5681d79b33425993010236-23">23</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-24">24</div><div class="crayon-num" data-line="crayon-5681d79b33425993010236-25">25</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-26">26</div><div class="crayon-num" data-line="crayon-5681d79b33425993010236-27">27</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-28">28</div><div class="crayon-num" data-line="crayon-5681d79b33425993010236-29">29</div><div class="crayon-num crayon-striped-num" data-line="crayon-5681d79b33425993010236-30">30</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;"><div class="crayon-line" id="crayon-5681d79b33425993010236-1"><span class="crayon-sy">$</span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">on</span><span class="crayon-sy">(</span><span class="crayon-s">'playing'</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">function</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-2"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-c">// 开始播放是打点</span></div><div class="crayon-line" id="crayon-5681d79b33425993010236-3"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-sy">$</span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">attr</span><span class="crayon-sy">(</span><span class="crayon-s">'data-updateTime'</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">Date</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-4"><span class="crayon-sy">}</span><span class="crayon-sy">)</span></div><div class="crayon-line" id="crayon-5681d79b33425993010236-5">&nbsp;</div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-6"><span class="crayon-sy">$</span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">on</span><span class="crayon-sy">(</span><span class="crayon-s">'pause'</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">function</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span></div><div class="crayon-line" id="crayon-5681d79b33425993010236-7"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-c">// 暂停播放时清除打点</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-8"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-sy">$</span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">removeAttr</span><span class="crayon-sy">(</span><span class="crayon-s">'data-updateTime'</span><span class="crayon-sy">)</span></div><div class="crayon-line" id="crayon-5681d79b33425993010236-9"><span class="crayon-sy">}</span><span class="crayon-sy">)</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-10">&nbsp;</div><div class="crayon-line" id="crayon-5681d79b33425993010236-11"><span class="crayon-c">// 累加播放时间</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-12"><span class="crayon-sy">$</span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">on</span><span class="crayon-sy">(</span><span class="crayon-s">'timeupdate'</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">function</span><span class="crayon-sy">(</span><span class="crayon-v">event</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span></div><div class="crayon-line" id="crayon-5681d79b33425993010236-13"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-t">var</span><span class="crayon-h"> </span><span class="crayon-sy">$</span><span class="crayon-v">video</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">$</span><span class="crayon-sy">(</span><span class="crayon-v">event</span><span class="crayon-sy">.</span><span class="crayon-v">target</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-14"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-v">updateTime</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">parseInt</span><span class="crayon-sy">(</span><span class="crayon-sy">$</span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">attr</span><span class="crayon-sy">(</span><span class="crayon-s">'data-updateTime'</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">||</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span></div><div class="crayon-line" id="crayon-5681d79b33425993010236-15"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-v">playingTime</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">parseInt</span><span class="crayon-sy">(</span><span class="crayon-sy">$</span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">attr</span><span class="crayon-sy">(</span><span class="crayon-s">'data-playingTime'</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">||</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-16"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-v">times</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">parseInt</span><span class="crayon-sy">(</span><span class="crayon-sy">$</span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">attr</span><span class="crayon-sy">(</span><span class="crayon-s">'data-times'</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">||</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span></div><div class="crayon-line" id="crayon-5681d79b33425993010236-17"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-v">newtimes</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-18"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-v">video</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">$</span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-cn">0</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span></div><div class="crayon-line" id="crayon-5681d79b33425993010236-19"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-v">duration</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">parseFloat</span><span class="crayon-sy">(</span><span class="crayon-sy">$</span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">attr</span><span class="crayon-sy">(</span><span class="crayon-s">'data-duration'</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">||</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-20"><span class="crayon-h">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="crayon-v">now</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">Date</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span></div><div class="crayon-line" id="crayon-5681d79b33425993010236-21">&nbsp;</div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-22"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-c">// 播放时间</span></div><div class="crayon-line" id="crayon-5681d79b33425993010236-23"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-v">playingTime</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">playingTime</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-v">now</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-h"> </span><span class="crayon-v">updateTime</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-24">&nbsp;</div><div class="crayon-line" id="crayon-5681d79b33425993010236-25"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-c">// 播放次数</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-26"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-v">newtimes</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">Math</span><span class="crayon-sy">.</span><span class="crayon-e">ceil</span><span class="crayon-sy">(</span><span class="crayon-v">playingTime</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-h"> </span><span class="crayon-cn">1000</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-h"> </span><span class="crayon-v">duration</span><span class="crayon-sy">)</span></div><div class="crayon-line" id="crayon-5681d79b33425993010236-27">&nbsp;</div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-28"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-sy">$</span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">attr</span><span class="crayon-sy">(</span><span class="crayon-s">'data-playingTime'</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">playingTime</span><span class="crayon-sy">)</span></div><div class="crayon-line" id="crayon-5681d79b33425993010236-29"><span class="crayon-h">&nbsp;&nbsp;</span><span class="crayon-sy">$</span><span class="crayon-v">video</span><span class="crayon-sy">.</span><span class="crayon-e">attr</span><span class="crayon-sy">(</span><span class="crayon-s">'data-updateTime'</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">now</span><span class="crayon-sy">)</span></div><div class="crayon-line crayon-striped-line" id="crayon-5681d79b33425993010236-30"><span class="crayon-sy">}</span><span class="crayon-sy">)</span></div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div><p></p>
+<h3 id="h3-16">异常处理</h3>
+<p>对error事件做详细的上报；</p>
+<p>对stalled事件做统计上报，并提示用户网络慢等。</p>
+<h2 id="h2-17">参考数据</h2>
+<p>微视触屏版iOS视频测速</p>
+<table>
+<thead>
+<tr>
+<th>网络环境</th>
+<th>视频码率</th>
+<th>获取到视频时长<br />
+时间点(s)</th>
+<th>开始流畅播放<br />
+时间点(s)</th>
+<th>全部下载完毕<br />
+时间点(s)</th>
+<th>视频长度(s)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>wifi</td>
+<td>1000kbps</td>
+<td>2.86</td>
+<td>3.97</td>
+<td>5.85</td>
+<td>8.69</td>
+</tr>
+<tr>
+<td>非wifi</td>
+<td>500kbps</td>
+<td>4.56</td>
+<td>8</td>
+<td>10.62</td>
+<td>8.67</td>
+</tr>
+</tbody>
+</table>
